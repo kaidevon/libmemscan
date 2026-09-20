@@ -1,0 +1,96 @@
+# Changelog
+
+This project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
+
+## [v1.0.0-rc3] - 2026-09-17
+
+### Fixes
+- Synced `vma_select.h` declarations with the implementation, now array-based:
+  - `to_vma_select(const char **s, int count)`
+  - `free_vma_select(struct vma_select **select, int count)`
+  - `vma_filter_select(struct vm_area **area, struct vma_select **select, int count)`
+- Expanded the `perm` buffer in `vm_area` from 4 to 5 bytes, fixing the `perm[4] = '\0'` out-of-bounds write.
+- `vma_select` now falls back to `area->module->pathname` when `area->pathname` is empty, fixing `.bss` matching.
+
+### Notes
+This is a release candidate for v1.0.0. Please test and report issues.
+
+## [v1.0.0-rc2] - 2026-09-17
+
+### License Change
+This project switches to the **GNU Lesser General Public License v3.0 (LGPLv3)**, so that other programs (including proprietary ones) can link against this library.
+
+- All code in this project is now licensed under LGPLv3.
+- The full license texts are available in the `LICENSE` file (GPLv3 full text) and the `COPYING.LESSER` file (LGPLv3 additional permissions).
+- Programs that link against this library may remain closed-source; modifications to the library itself must be shared under LGPLv3.
+- Previous releases remain under their original licenses.
+
+## [v1.0.0-rc1] - 2026-09-16
+
+### Updates
+- I have now added libelf support; now you can view ELF information by calling `vma_elf`. The segment type of each segment, the index relative to the segment; all ELF modules can be supported.
+- I added a hash table for `vma_map`, which means you can view its memory segment through an address!
+- Added `vma_select`, which means you can select a memory range through `libabc.so:.bss[0];rw-p`! Compared to the rough `vma_filter`, this is much more accurate, however, this is relative.
+- Removed the command-line interface. At present, I am still working hard, and I believe we will support command-line arguments soon.
+- Version number updated to 1.x. This is groundbreaking, but this is relative.
+- To support the use of libelf, we changed the license to GPLv3. This is significant and relative!
+
+### License Change
+This release marks the switch of this project to the **GNU General Public License v3.0 (GPLv3)**.
+
+- All code in this project is now licensed under GPLv3.
+- The full license text is available in the `LICENSE` file.
+- Derivative works must comply with the terms of GPLv3.
+- Previous releases remain under their original licenses.
+
+### Notes
+This is a release candidate for v1.0.0. Please test and report issues.
+
+## [v0.2.0] - 2026-08-27 06:00
+
+### Added
+- **Custom comparison callback `memscanv_compar_t`**  
+  `memscanv` now supports an optional block-matching callback parameter, allowing users to implement arbitrary matching logic without modifying the scanning core (such as range matching, multi-string AC automaton, fuzzy matching, etc.). The callback uses a **block mask** design, processing an entire memory block in one call, greatly reducing function call overhead.
+- **`userdata` parameter support**  
+  The callback can pass custom context through `void *userdata` (such as AC automaton state, sorted candidate arrays, etc.), enabling flexible multi-pattern matching.
+
+### Optimizations
+- **Multi-pattern matching in a single scan**  
+  Through the callback mechanism, `memscanv` can match multiple patterns simultaneously in one memory traversal, completely getting rid of the previous inefficient way of scanning non-integer patterns one by one.
+- **Alignment handling**  
+  The callback scanning path adds address alignment correction, ensuring candidate addresses are always aligned to the specified stride, avoiding missed reports or incorrect matches.
+
+### Fixes
+- Fixed the issue where callback scanning incorrectly freed the caller's `vm_area` linked list in the single-threaded path (changed to copying the linked list).
+- Fixed the issue where callback scanning lacked overlapping reads, ensuring patterns crossing block boundaries can be correctly detected.
+- Fixed the issue where the advancement stride was not limited to the region range when `process_reader` returns a non-positive value.
+- Fixed the issue where `callback.h` lacked the `<stdint.h>` include, causing standalone compilation to fail.
+
+## [v0.1.0] - 2026-08-26
+
+### Added
+- **Multi-value batch scan function `memscanv`**  
+  A new low-level `memscanv` interface is added, supporting scanning multiple target values at once (4- or 8-byte integers), greatly improving performance for advanced applications such as pointer chain scanning.
+- **Address list filtering enhancements**  
+  Expanded the range supported by `addrlist_filter`; now all non-snapshot filter types (including floating-point approximation and integer approximation) are available.
+- **Snapshot management improvements**  
+  Added the `free_addrlist_snapshot` function to conveniently free snapshot memory and reduce the risk of memory leaks.
+
+### Optimizations
+- **Multi-threaded acceleration**  
+  General byte pattern scanning (non-4/8-byte) also supports multi-threaded parallelism, retaining the original `jobs` parameter acceleration capability.
+- **Address list deduplication**  
+  Always sort and deduplicate the address list before filtering to avoid duplicate results.
+
+### Fixes
+- Fixed the upper limit restriction on filter types in `addrlist_filter`; types such as floating-point comparison are no longer incorrectly rejected.
+- Fixed the `src` null pointer check logic, ensuring all filters that require a reference value correctly validate the parameter.
+- Removed the redundant `(void)delta;` in `match_value_snap`.
+
+## [v0.0.1] - 2026-07-31
+
+### Initial Version
+- Implemented the multi-threaded memory scanning core functionality.
+- Supports multiple data types and comparison operations.
+- Provides region filtering, address list filtering, and snapshot differential analysis.
+- Command-line interface completed, supporting saving/loading results.
