@@ -381,6 +381,9 @@ static int do_memscanv_multi(pid_t pid, struct vm_area* vm_area,
                 uint64_t misalign = pos % align;
                 if (misalign) {
                     size_t skip = align - misalign;
+                    if (skip > (size_t)(end - pos)) {
+                        skip = end - pos;
+                    }
                     pos += skip;
                     effective_advance += skip;
                 }
@@ -588,6 +591,9 @@ static int do_memscan_generic(pid_t pid, struct vm_area* vm_area,
                 uint64_t misalign = pos % align;
                 if (misalign) {
                     size_t skip = align - misalign;
+                    if (skip > (size_t)(end - pos)) {
+                        skip = end - pos;
+                    }
                     pos += skip;
                     effective_advance += skip;
                 }
@@ -689,6 +695,9 @@ static void* scan_thread_callback(void* arg) {
             /* Ensure pos is aligned to step before each read */
             if (pos % step != 0) {
                 size_t skip = step - (pos % step);
+                if (skip > (size_t)(end - pos)) {
+                    skip = end - pos;
+                }
                 pos += skip;
                 if (task->progress)
                     atomic_fetch_add(&task->progress->current_pos, skip);
@@ -755,6 +764,9 @@ static void* scan_thread_callback(void* arg) {
                                 goto cleanup;
                             }
                             task->perf.found++;
+                            if (task->progress) {
+                                atomic_fetch_add(&task->progress->total_found, 1);
+                            }
                             bits &= bits - 1;
                         }
                     }
@@ -1001,13 +1013,13 @@ static int memscanv_callback(pid_t pid, struct vm_area* vm_area,
     uintptr_t total_len = 0;
     for (struct vm_area *cur = vm_area; cur; cur = cur->next)
         total_len += (cur->end - cur->start);
-    if (total_len == 0) return 0;
 
     if (progress) {
         atomic_store(&progress->tot_len, total_len);
         atomic_store(&progress->current_pos, 0);
         atomic_store(&progress->total_found, 0);
     }
+    if (total_len == 0) return 0;
 
     int num_threads = jobs > 0 ? jobs : 1;
     global_perf_start((*result)->perf, num_threads);
@@ -1174,13 +1186,13 @@ int memscanv(pid_t pid, struct vm_area* vm_area,
     uintptr_t total_len = 0;
     for (struct vm_area *cur = vm_area; cur; cur = cur->next)
         total_len += (cur->end - cur->start);
-    if (total_len == 0) return 0;
 
     if (progress) {
         atomic_store(&progress->tot_len, total_len);
         atomic_store(&progress->current_pos, 0);
         atomic_store(&progress->total_found, 0);
     }
+    if (total_len == 0) return 0;
 
     int num_threads = jobs > 0 ? jobs : 1;
     global_perf_start((*result)->perf, num_threads);
@@ -1198,6 +1210,10 @@ int memscanv(pid_t pid, struct vm_area* vm_area,
             fast_path = 0;
             break;
         }
+    }
+
+    if (progress && !fast_path) {
+        atomic_store(&progress->tot_len, (uint64_t)total_len * (uint64_t)count);
     }
 
     if (fast_path) {
