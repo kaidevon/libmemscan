@@ -22,169 +22,324 @@
 #include <inttypes.h>
 #include <errno.h>
 #include <sys/sysmacros.h>
-#include <libelf/libelf.h>
-#include <libelf/gelf.h>
 
 #include "memscan/vm_area.h"
 
-int vma_elf(struct vm_area *head) {
-    if (!head)
+#define EI_NIDENT    16
+#define ELFCLASS32   1
+#define ELFCLASS64   2
+#define ELFDATA2LSB  1
+
+#define PT_LOAD      1
+#define PF_X         1
+#define PF_W         2
+
+#define ELF_MAX_PHDRS 64
+
+struct elf32_ehdr {
+    unsigned char e_ident[EI_NIDENT];
+    uint16_t e_type;
+    uint16_t e_machine;
+    uint32_t e_version;
+    uint32_t e_entry;
+    uint32_t e_phoff;
+    uint32_t e_shoff;
+    uint32_t e_flags;
+    uint16_t e_ehsize;
+    uint16_t e_phentsize;
+    uint16_t e_phnum;
+    uint16_t e_shentsize;
+    uint16_t e_shnum;
+    uint16_t e_shstrndx;
+} __attribute__((packed));
+
+struct elf64_ehdr {
+    unsigned char e_ident[EI_NIDENT];
+    uint16_t e_type;
+    uint16_t e_machine;
+    uint32_t e_version;
+    uint64_t e_entry;
+    uint64_t e_phoff;
+    uint64_t e_shoff;
+    uint32_t e_flags;
+    uint16_t e_ehsize;
+    uint16_t e_phentsize;
+    uint16_t e_phnum;
+    uint16_t e_shentsize;
+    uint16_t e_shnum;
+    uint16_t e_shstrndx;
+} __attribute__((packed));
+
+struct elf32_phdr {
+    uint32_t p_type;
+    uint32_t p_offset;
+    uint32_t p_vaddr;
+    uint32_t p_paddr;
+    uint32_t p_filesz;
+    uint32_t p_memsz;
+    uint32_t p_flags;
+    uint32_t p_align;
+} __attribute__((packed));
+
+struct elf64_phdr {
+    uint32_t p_type;
+    uint32_t p_flags;
+    uint64_t p_offset;
+    uint64_t p_vaddr;
+    uint64_t p_paddr;
+    uint64_t p_filesz;
+    uint64_t p_memsz;
+    uint64_t p_align;
+} __attribute__((packed));
+
+struct elf_seg {
+    uint64_t vaddr;
+    uint64_t offset;
+    uint64_t filesz;
+    uint64_t memsz;
+    uint32_t flags;
+};
+
+struct elf_meta {
+    int is_elf;
+    int nsegs;
+    struct elf_seg segs[ELF_MAX_PHDRS];
+};
+
+static int read_exact(int fd, void *buf, size_t len, off_t off)
+{
+    uint8_t *p = buf;
+    while (len > 0) {
+        ssize_t n = pread(fd, p, len, off);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p   += n;
+        off += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+static int elf_parse(const char *path, struct elf_meta *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
         return -1;
 
-    if (elf_version(EV_CURRENT) == EV_NONE)
+    unsigned char ident[EI_NIDENT];
+    if (read_exact(fd, ident, EI_NIDENT, 0) != 0)
+        goto fail;
+    if (ident[0] != 0x7f || ident[1] != 'E' ||
+        ident[2] != 'L'  || ident[3] != 'F')
+        goto fail;
+    if (ident[5] != ELFDATA2LSB)
+        goto fail;
+
+    int k = 0;
+
+    if (ident[4] == ELFCLASS64) {
+        struct elf64_ehdr eh;
+        if (read_exact(fd, &eh, sizeof(eh), 0) != 0)          goto fail;
+        if (eh.e_phentsize != sizeof(struct elf64_phdr))       goto fail;
+        if (eh.e_phnum == 0)                                   goto fail;
+
+        int n = eh.e_phnum > ELF_MAX_PHDRS ? ELF_MAX_PHDRS : eh.e_phnum;
+        for (int i = 0; i < n; i++) {
+            struct elf64_phdr ph;
+            off_t poff = (off_t)eh.e_phoff + (off_t)i * sizeof(ph);
+            if (read_exact(fd, &ph, sizeof(ph), poff) != 0) goto fail;
+            if (ph.p_type != PT_LOAD) continue;
+            out->segs[k].vaddr  = ph.p_vaddr;
+            out->segs[k].offset = ph.p_offset;
+            out->segs[k].filesz = ph.p_filesz;
+            out->segs[k].memsz  = ph.p_memsz;
+            out->segs[k].flags  = ph.p_flags;
+            k++;
+        }
+    } else if (ident[4] == ELFCLASS32) {
+        struct elf32_ehdr eh;
+        if (read_exact(fd, &eh, sizeof(eh), 0) != 0)          goto fail;
+        if (eh.e_phentsize != sizeof(struct elf32_phdr))       goto fail;
+        if (eh.e_phnum == 0)                                   goto fail;
+
+        int n = eh.e_phnum > ELF_MAX_PHDRS ? ELF_MAX_PHDRS : eh.e_phnum;
+        for (int i = 0; i < n; i++) {
+            struct elf32_phdr ph;
+            off_t poff = (off_t)eh.e_phoff + (off_t)i * sizeof(ph);
+            if (read_exact(fd, &ph, sizeof(ph), poff) != 0) goto fail;
+            if (ph.p_type != PT_LOAD) continue;
+            out->segs[k].vaddr  = ph.p_vaddr;
+            out->segs[k].offset = ph.p_offset;
+            out->segs[k].filesz = ph.p_filesz;
+            out->segs[k].memsz  = ph.p_memsz;
+            out->segs[k].flags  = ph.p_flags;
+            k++;
+        }
+    } else {
+        goto fail;
+    }
+
+    close(fd);
+    out->is_elf = 1;
+    out->nsegs  = k;
+    return 0;
+
+fail:
+    close(fd);
+    out->is_elf = 0;
+    out->nsegs  = 0;
+    return -1;
+}
+
+struct elf_cache_entry {
+    char            *path;
+    struct elf_meta  meta;
+};
+
+struct elf_cache {
+    struct elf_cache_entry *entries;
+    int count;
+    int cap;
+};
+
+static const struct elf_meta *elf_cache_get(struct elf_cache *c,
+                                            const char *path)
+{
+    for (int i = 0; i < c->count; i++) {
+        if (strcmp(c->entries[i].path, path) == 0)
+            return c->entries[i].meta.is_elf ? &c->entries[i].meta : NULL;
+    }
+
+    if (c->count == c->cap) {
+        int nc = c->cap ? c->cap * 2 : 16;
+        struct elf_cache_entry *ne =
+            realloc(c->entries, (size_t)nc * sizeof(*ne));
+        if (!ne) return NULL;
+        c->entries = ne;
+        c->cap = nc;
+    }
+
+    struct elf_cache_entry *e = &c->entries[c->count];
+    e->path = strdup(path);
+    if (!e->path) return NULL;
+
+    if (elf_parse(path, &e->meta) != 0) {
+        e->meta.is_elf = 0;
+        e->meta.nsegs  = 0;
+    }
+    c->count++;
+    return e->meta.is_elf ? &e->meta : NULL;
+}
+
+static void elf_cache_free(struct elf_cache *c)
+{
+    if (!c) return;
+    for (int i = 0; i < c->count; i++)
+        free(c->entries[i].path);
+    free(c->entries);
+    c->entries = NULL;
+    c->count = c->cap = 0;
+}
+
+static int elf_load_bias(const struct vm_area *v,
+                         const struct elf_meta *m,
+                         uint64_t *bias_out)
+{
+    for (int i = 0; i < m->nsegs; i++) {
+        const struct elf_seg *s = &m->segs[i];
+        if ((uint64_t)v->offset >= s->offset &&
+            (uint64_t)v->offset <  s->offset + s->filesz) {
+            *bias_out = v->start - (s->vaddr +
+                        ((uint64_t)v->offset - s->offset));
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int vma_elf(struct vm_area *head)
+{
+    if (!head)
         return -1;
 
     long page_size = sysconf(_SC_PAGESIZE);
     if (page_size <= 0)
         page_size = 4096;
+    uint64_t pmask = (uint64_t)page_size - 1;
 
-    /* 初始化所有 VMA */
+    /* Initialize all VMAs */
     for (struct vm_area *v = head; v; v = v->next) {
         v->seg_type  = VMA_TYPE_UNKNOWN;
         v->seg_index = 0;
         v->module    = NULL;
     }
 
-    /* 第一遍：识别可执行段（.text），作为模块根 */
+    struct elf_cache cache = {0};
+
+    /* First pass: identify executable segments (.text) as module roots */
     for (struct vm_area *v = head; v; v = v->next) {
         if (!v->pathname)
             continue;
 
-        int fd = open(v->pathname, O_RDONLY);
-        if (fd < 0)
+        const struct elf_meta *m = elf_cache_get(&cache, v->pathname);
+        if (!m)
             continue;
 
-        Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
-        if (!elf) {
-            close(fd);
-            continue;
-        }
+        uint64_t bias;
+        if (elf_load_bias(v, m, &bias) != 0)
+            bias = v->start - (uint64_t)v->offset;
 
-        GElf_Ehdr ehdr;
-        if (gelf_getehdr(elf, &ehdr) == NULL) {
-            elf_end(elf);
-            close(fd);
-            continue;
-        }
-
-        size_t phnum;
-        if (elf_getphdrnum(elf, &phnum) != 0) {
-            elf_end(elf);
-            close(fd);
-            continue;
-        }
-
-        uintptr_t load_bias = 0;
-        int bias_found = 0;
-        for (size_t i = 0; i < phnum && !bias_found; i++) {
-            GElf_Phdr phdr;
-            if (gelf_getphdr(elf, i, &phdr) == NULL)
+        for (int i = 0; i < m->nsegs; i++) {
+            const struct elf_seg *s = &m->segs[i];
+            if (!(s->flags & PF_X))
                 continue;
-            if (phdr.p_type != PT_LOAD)
-                continue;
-            if (v->offset >= phdr.p_offset &&
-                v->offset < phdr.p_offset + phdr.p_filesz) {
-                load_bias = v->start - (phdr.p_vaddr + (v->offset - phdr.p_offset));
-                bias_found = 1;
+            uint64_t seg_start = bias + s->vaddr;
+            uint64_t seg_end   = seg_start + s->filesz;
+            if (v->start >= seg_start && v->start < seg_end) {
+                v->seg_type = VMA_TYPE_TEXT;
+                v->module   = v;
+                break;
             }
-        }
-        if (!bias_found)
-            load_bias = v->start - v->offset;
-
-        int is_text = 0;
-        for (size_t i = 0; i < phnum && !is_text; i++) {
-            GElf_Phdr phdr;
-            if (gelf_getphdr(elf, i, &phdr) == NULL)
-                continue;
-            if (phdr.p_type != PT_LOAD)
-                continue;
-            if (!(phdr.p_flags & PF_X))
-                continue;
-            uintptr_t seg_start = load_bias + phdr.p_vaddr;
-            uintptr_t seg_end   = seg_start + phdr.p_filesz;
-            if (v->start >= seg_start && v->start < seg_end)
-                is_text = 1;
-        }
-
-        elf_end(elf);
-        close(fd);
-
-        if (is_text) {
-            v->seg_type = VMA_TYPE_TEXT;
-            v->module   = v;
         }
     }
 
-    /* 第二遍：基于 ELF 程序头为其余 VMA 分配段类型和模块 */
+    /* Second pass: assign segment types and modules to the remaining VMAs based on ELF program headers */
     for (struct vm_area *v = head; v; v = v->next) {
         if (v->seg_type != VMA_TYPE_UNKNOWN || !v->pathname)
             continue;
 
-        int fd = open(v->pathname, O_RDONLY);
-        if (fd < 0)
+        const struct elf_meta *m = elf_cache_get(&cache, v->pathname);
+        if (!m)
             continue;
 
-        Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
-        if (!elf) {
-            close(fd);
-            continue;
-        }
-
-        GElf_Ehdr ehdr;
-        if (gelf_getehdr(elf, &ehdr) == NULL) {
-            elf_end(elf);
-            close(fd);
-            continue;
-        }
-
-        size_t phnum;
-        if (elf_getphdrnum(elf, &phnum) != 0) {
-            elf_end(elf);
-            close(fd);
-            continue;
-        }
-
-        uintptr_t load_bias = 0;
-        int bias_found = 0;
-        for (size_t i = 0; i < phnum && !bias_found; i++) {
-            GElf_Phdr phdr;
-            if (gelf_getphdr(elf, i, &phdr) == NULL)
-                continue;
-            if (phdr.p_type != PT_LOAD)
-                continue;
-            if (v->offset >= phdr.p_offset &&
-                v->offset < phdr.p_offset + phdr.p_filesz) {
-                load_bias = v->start - (phdr.p_vaddr + (v->offset - phdr.p_offset));
-                bias_found = 1;
-            }
-        }
-        if (!bias_found)
-            load_bias = v->start - v->offset;
+        uint64_t bias;
+        if (elf_load_bias(v, m, &bias) != 0)
+            bias = v->start - (uint64_t)v->offset;
 
         int seg_type = VMA_TYPE_UNKNOWN;
-        for (size_t i = 0; i < phnum && seg_type == VMA_TYPE_UNKNOWN; i++) {
-            GElf_Phdr phdr;
-            if (gelf_getphdr(elf, i, &phdr) == NULL)
-                continue;
-            if (phdr.p_type != PT_LOAD)
-                continue;
-            uintptr_t seg_start = load_bias + phdr.p_vaddr;
-            uintptr_t seg_end   = seg_start + phdr.p_filesz;
+        for (int i = 0; i < m->nsegs; i++) {
+            const struct elf_seg *s = &m->segs[i];
+            uint64_t seg_start = bias + s->vaddr;
+            uint64_t seg_end   = seg_start + s->filesz;
             if (v->start >= seg_start && v->start < seg_end) {
-                if (phdr.p_flags & PF_X)
+                if (s->flags & PF_X)
                     seg_type = VMA_TYPE_TEXT;
-                else if (!(phdr.p_flags & PF_W))
+                else if (!(s->flags & PF_W))
                     seg_type = VMA_TYPE_RODATA;
                 else
                     seg_type = VMA_TYPE_DATA;
+                break;
             }
         }
 
-        elf_end(elf);
-        close(fd);
-
         if (seg_type != VMA_TYPE_UNKNOWN) {
             v->seg_type = seg_type;
+
             struct vm_area *root = NULL;
             for (struct vm_area *w = head; w; w = w->next) {
                 if (w->seg_type == VMA_TYPE_TEXT &&
@@ -199,7 +354,7 @@ int vma_elf(struct vm_area *head) {
         }
     }
 
-    /* 第三遍：识别 .bss（可写且不属于任何文件的匿名可写段） */
+    /* Third pass: identify .bss (anonymous writable segments that are writable and do not belong to any file) */
     for (struct vm_area *v = head; v; v = v->next) {
         if (v->seg_type != VMA_TYPE_UNKNOWN)
             continue;
@@ -210,68 +365,29 @@ int vma_elf(struct vm_area *head) {
             if (root->seg_type != VMA_TYPE_TEXT || !root->pathname)
                 continue;
 
-            int fd = open(root->pathname, O_RDONLY);
-            if (fd < 0)
+            const struct elf_meta *m =
+                elf_cache_get(&cache, root->pathname);
+            if (!m)
                 continue;
 
-            Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
-            if (!elf) {
-                close(fd);
-                continue;
-            }
-
-            GElf_Ehdr ehdr;
-            if (gelf_getehdr(elf, &ehdr) == NULL) {
-                elf_end(elf);
-                close(fd);
-                continue;
-            }
-
-            size_t phnum;
-            if (elf_getphdrnum(elf, &phnum) != 0) {
-                elf_end(elf);
-                close(fd);
-                continue;
-            }
-
-            uintptr_t load_bias = 0;
-            int bias_found = 0;
-            for (size_t i = 0; i < phnum && !bias_found; i++) {
-                GElf_Phdr phdr;
-                if (gelf_getphdr(elf, i, &phdr) == NULL)
-                    continue;
-                if (phdr.p_type != PT_LOAD)
-                    continue;
-                if (root->offset >= phdr.p_offset &&
-                    root->offset < phdr.p_offset + phdr.p_filesz) {
-                    load_bias = root->start - (phdr.p_vaddr + (root->offset - phdr.p_offset));
-                    bias_found = 1;
-                }
-            }
-            if (!bias_found)
-                load_bias = root->start - root->offset;
+            uint64_t bias;
+            if (elf_load_bias(root, m, &bias) != 0)
+                bias = root->start - (uint64_t)root->offset;
 
             int in_bss = 0;
-            for (size_t i = 0; i < phnum && !in_bss; i++) {
-                GElf_Phdr phdr;
-                if (gelf_getphdr(elf, i, &phdr) == NULL)
+            for (int i = 0; i < m->nsegs && !in_bss; i++) {
+                const struct elf_seg *s = &m->segs[i];
+                if (s->memsz <= s->filesz)
                     continue;
-                if (phdr.p_type != PT_LOAD)
-                    continue;
-                if (phdr.p_memsz > phdr.p_filesz) {
-                    uintptr_t bss_start = load_bias + phdr.p_vaddr + phdr.p_filesz;
-                    uintptr_t bss_end   = load_bias + phdr.p_vaddr + phdr.p_memsz;
 
-                    bss_start = (bss_start + page_size - 1) & ~(page_size - 1);
-                    bss_end   = (bss_end + page_size - 1) & ~(page_size - 1);
+                uint64_t bss_start = bias + s->vaddr + s->filesz;
+                uint64_t bss_end   = bias + s->vaddr + s->memsz;
+                bss_start = (bss_start + pmask) & ~pmask;
+                bss_end   = (bss_end   + pmask) & ~pmask;
 
-                    if (v->start >= bss_start && v->start < bss_end)
-                        in_bss = 1;
-                }
+                if (v->start >= bss_start && v->start < bss_end)
+                    in_bss = 1;
             }
-
-            elf_end(elf);
-            close(fd);
 
             if (in_bss) {
                 v->seg_type = VMA_TYPE_BSS;
@@ -281,13 +397,9 @@ int vma_elf(struct vm_area *head) {
         }
     }
 
-    /*
-     * 第四遍：计算 seg_index。
-     *
-     * 对每个已识别类型的 VMA，统计同一模块、同一段类型中起始地址更小的
-     * VMA 数量，即为该 VMA 的索引。按地址升序排列，从 0 开始编号。
-     * 绝大多数模块每种段类型只有一个 VMA，因此结果通常为 0。
-     */
+    elf_cache_free(&cache);
+
+    /* Fourth pass: compute seg_index (numbered in ascending order of start within the same module and seg_type) */
     for (struct vm_area *v = head; v; v = v->next) {
         if (v->seg_type == VMA_TYPE_UNKNOWN || !v->module) {
             v->seg_index = 0;
@@ -324,7 +436,7 @@ int parse_maps(pid_t pid, struct vm_area **vm_area_out) {
     if (fd < 0)
         return -errno;
 
-    /* 读取整个 maps 文件 */
+    /* Read the entire maps file */
     size_t cap = 64 * 1024;
     size_t len = 0;
     char *buf = malloc(cap);
@@ -381,7 +493,7 @@ int parse_maps(pid_t pid, struct vm_area **vm_area_out) {
             continue;
         }
 
-        /* 复制为独立的 NUL 终止字符串再解析 */
+        /* Copy into an independent NUL-terminated string before parsing */
         char *line = malloc(line_len + 1);
         if (!line) {
             ret = -ENOMEM;
@@ -397,8 +509,8 @@ int parse_maps(pid_t pid, struct vm_area **vm_area_out) {
         int consumed = 0;
 
         /*
-         * 注意：%n 前不要加空格，否则会跳过换行。
-         * 空格只应出现在必需分隔字段之间。
+         * Note: do not put a space before %n, otherwise it will skip the newline.
+         * Spaces should only appear between required delimiter fields.
          */
         int matched = sscanf(line,
             "%" SCNx64 "-%" SCNx64 " %4s %" SCNx64
