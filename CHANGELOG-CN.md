@@ -2,6 +2,16 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v1.1.0] - 2026-09-28
+
+### 移除
+- 移除了自带的 `libelf` 头文件目录（`include/libelf/`）。项目不再内嵌上游 libelf 头文件，ELF 解析完全由 `src/vm_area_elf.c` 中内置的极简解析器完成。
+- 从 `Makefile` 和 `Android.mk` 中清除了 libelf 构建痕迹（不再有 `LIBELF_*` 变量、`-lelf` 链接，以及独立的 libelf 模块目标）。
+
+### 更新
+- `Android.mk` 现在直接构建 `libmemscan`，不再经过额外的 `libelf` 中间模块。
+- 更新了 `README.md`，并清理了若干从早期版本遗留的历史问题。
+
 ## [v1.0.0] - 2026-9-23
 
 ### 更新

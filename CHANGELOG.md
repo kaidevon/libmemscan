@@ -2,6 +2,12 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [v1.1.0] - 2026-09-28
+
+### Removed
+- Removed the bundled `libelf` headers (`include/libelf/`). The project no longer vendors upstream libelf headers; ELF parsing is now handled entirely by the built-in minimal parser in `src/vm_area_elf.c`.
+- Removed `libelf` build traces from `Makefile` and `Android.mk` (no more `LIBELF_*` variables, `-lelf` linkage, or the standalone libelf module target).
+
 ## [v1.0.0] - 2026-09-23
 
 ### Updates
