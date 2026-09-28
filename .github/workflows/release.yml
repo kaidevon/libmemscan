@@ -20,23 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK (for sdkmanager)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
+      - name: Show preinstalled Android SDK / NDK
         run: |
-          sdkmanager --install "ndk;26.1.10909125" >/dev/null
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls "$ANDROID_NDK_HOME" | head
 
       - name: Build static library
         run: |
-          $ANDROID_NDK_HOME/ndk-build \
+          "$ANDROID_NDK_HOME/ndk-build" \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=./jni/Android.mk \
             APP_ABI=${{ matrix.abi }} \
