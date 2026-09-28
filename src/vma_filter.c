@@ -14,7 +14,7 @@
  * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "memscan/vma_filter.h"
+#include "vma/vma_filter.h"
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>

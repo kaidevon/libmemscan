@@ -1,7 +1,7 @@
 #ifndef VMA_SELECT_H
 #define VMA_SELECT_H
 
-#include "memscan/vm_area.h"
+#include "vma/vm_area.h"
 
 struct vma_select {
     char *module;

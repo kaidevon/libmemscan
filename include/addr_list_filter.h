@@ -19,7 +19,7 @@
 
 #include "memscan.h"
 #include "memscan/callback.h"
-#include "memscan/vm_area.h"
+#include "vma/vm_area.h"
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/uio.h>

@@ -2,6 +2,19 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [v2.0.0] - 2026-09-28
+
+### Breaking Changes
+- Public header paths changed: `include/memscan/{vm_area,vma_map,vma_filter,vma_select}.h`
+  have been moved to `include/vma/`. Downstream code must update
+  `#include "memscan/xxx.h"` to `#include "vma/xxx.h"`.
+- `include/memscan/callback.h` stays where it is; the path `memscan/callback.h` is unchanged.
+
+### Updates
+- Added `-Iinclude/vma` to the search paths in both `Makefile` and `Android.mk`.
+- `Android.mk` now also adds `include/vma` to `LOCAL_EXPORT_C_INCLUDES` so downstream
+  modules can reference it directly.
+
 ## [v1.1.0] - 2026-09-28
 
 ### Removed

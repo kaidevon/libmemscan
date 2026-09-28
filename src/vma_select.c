@@ -47,8 +47,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "memscan/vma_select.h"
-#include "memscan/vma_filter.h"
+#include "vma/vma_select.h"
+#include "vma/vma_filter.h"
 
 static int select_compar(const struct vm_area *area, void *ud)
 {

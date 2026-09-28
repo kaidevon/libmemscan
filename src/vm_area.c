@@ -23,7 +23,7 @@
 #include <errno.h>
 #include <sys/sysmacros.h>
 
-#include "memscan/vm_area.h"
+#include "vma/vm_area.h"
 
 #define EI_NIDENT    16
 #define ELFCLASS32   1

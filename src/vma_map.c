@@ -14,7 +14,7 @@
  * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "memscan/vma_map.h"
+#include "vma/vma_map.h"
 #include <stdlib.h>
 #include <stddef.h>
 

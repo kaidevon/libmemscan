@@ -1,6 +1,6 @@
 CC = clang
 
-CFLAGS += -Iinclude -Iinclude/memscan
+CFLAGS += -Iinclude -Iinclude/vma
 CFLAGS += -march=native
 CFLAGS += -O3 -ftree-vectorize -fvectorize -ffast-math -fno-finite-math-only
 CFLAGS += -fPIC -D_GNU_SOURCE

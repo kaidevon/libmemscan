@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.0.0] - 2026-09-28
+
+### 破坏性变更
+- 公开头文件路径调整：`include/memscan/{vm_area,vma_map,vma_filter,vma_select}.h`
+  已迁移至 `include/vma/`。下游代码需将
+  `#include "memscan/xxx.h"` 改为 `#include "vma/xxx.h"`。
+- `include/memscan/callback.h` 保留原位，`memscan/callback.h` 这一路径不变。
+
+### 更新
+- `Makefile` 与 `Android.mk` 新增 `-Iinclude/vma` 搜索路径。
+- `Android.mk` 同时将 `include/vma` 加入 `LOCAL_EXPORT_C_INCLUDES`，方便下游直接引用。
+
 ## [v1.1.0] - 2026-09-28
 
 ### 移除
