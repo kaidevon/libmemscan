@@ -1,4 +1,4 @@
-[![Commits Verified](https://img.shields.io/badge/commits-verified-brightgreen)](https://github.com/Kaidevon/memscan/commits/master)
+[![Commits Verified](https://img.shields.io/badge/commits-verified-brightgreen)](https://github.com/kaidevon/libmemscan/commits/main)
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0.html)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)](https://www.kernel.org/)
 [![C](https://img.shields.io/badge/C-99-blue)](https://gcc.gnu.org/)
